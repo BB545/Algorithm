@@ -1,6 +1,4 @@
 def solution(s):
-    answer = True
-    ans = False
     a=0
     b=0
     for i in range(0,len(s)):
@@ -11,6 +9,6 @@ def solution(s):
         else:
             i=i+1
     if a==b:
-        return answer
+        return True
     else:
-        return ans
+        return False
