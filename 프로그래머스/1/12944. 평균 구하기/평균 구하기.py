@@ -4,5 +4,5 @@ def solution(arr):
     l=len(arr)
     for i in range(0, l):
         sum=sum+arr[i]
-        answer=sum/l
+    answer=sum/l
     return answer
