@@ -3,8 +3,8 @@ def solution(s):
     a=list(map(int,a))
     b=min(a)
     c=max(a)
-    answer=("%d %d" %(b,c))
-    print(answer)
-    return answer
+    #answer=("%d %d" %(b,c))
+    #print(answer)
+    return str(b)+" "+str(c)
         
             
