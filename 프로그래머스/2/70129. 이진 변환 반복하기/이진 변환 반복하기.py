@@ -1,7 +1,6 @@
 def solution(s):
     numc=0
     num0=0
-    binary=""
     while True:
         if s=="1":
             break
