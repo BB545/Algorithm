@@ -35,12 +35,6 @@ class Solution {
             }
         }
         
-        int[] answer = new int[ans.size()];
-        
-        for (int i = 0; i < ans.size(); i++) {
-            answer[i] = ans.get(i);
-        }
-        
-        return answer;
+        return ans.stream().mapToInt(i -> i).toArray();
     }
 }
