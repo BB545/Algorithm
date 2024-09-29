@@ -1,9 +1,5 @@
 function solution(numbers) {
     var answer = 0;
-    for (let i = 0; i <= 9; i++) {
-        if (!numbers.sort().includes(i)) {
-            answer += i;
-        }
-    }
+    answer = 45 - numbers.reduce((a, b) => a+b, 0);
     return answer;
 }
