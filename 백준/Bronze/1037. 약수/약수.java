@@ -12,10 +12,6 @@ public class Main {
         
         Arrays.sort(numbers);
         
-        if (cnt % 2 == 0) {
-            System.out.println(numbers[(cnt/2) - 1] * numbers[(cnt/2)]);
-        } else {
-            System.out.println(numbers[((cnt - 1)/2)] * numbers[((cnt - 1)/2)]);
-        }
+        System.out.println(numbers[0] * numbers[cnt - 1]);
     }
 }
