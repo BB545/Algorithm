@@ -10,10 +10,10 @@ class Solution {
         
         Arrays.sort(str);
         
-        for (int i = s.length() - 1; i >= 0; i--) {
-            sb.append(str[i]);
+        for (char si : str) {
+            sb.append(si);
         }
         
-        return sb.toString();
+        return sb.reverse().toString();
     }
 }
