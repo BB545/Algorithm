@@ -1,14 +1,16 @@
+import java.io.*;
 import java.util.*;
 
-public class Main {
+class Main {
     static List<Integer>[] graph;
     static boolean[] visited;
     static int N, M;
     
-    public static void main(String[] args) {
-        Scanner sc = new Scanner(System.in);
-        N = sc.nextInt();
-        M = sc.nextInt();
+    public static void main(String[] args) throws IOException {
+        BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+        String[] input = br.readLine().trim().split(" ");
+        N = Integer.parseInt(input[0]);
+        M = Integer.parseInt(input[1]);
         
         graph = new ArrayList[N];
         for (int i = 0; i < N; i++) {
@@ -16,8 +18,10 @@ public class Main {
         }
         
         for (int i = 0; i < M; i++) {
-            int a = sc.nextInt();
-            int b = sc.nextInt();
+            String[] command = br.readLine().trim().split(" ");
+            int a = Integer.parseInt(command[0]);
+            int b = Integer.parseInt(command[1]);
+            
             graph[a].add(b);
             graph[b].add(a);
         }
