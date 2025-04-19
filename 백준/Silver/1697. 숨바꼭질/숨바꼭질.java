@@ -1,40 +1,42 @@
+import java.io.*;
 import java.util.*;
 
-public class Main {
-    public static void main(String[] args) {
-        Scanner scanner = new Scanner(System.in);
-        int N = scanner.nextInt();
-        int K = scanner.nextInt();
-
-        System.out.println(findShortestTime(N, K));
+class Main {
+    public static void main(String args[]) throws IOException {
+        BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+        StringTokenizer st = new StringTokenizer(br.readLine());
+        int N = Integer.parseInt(st.nextToken());
+        int K = Integer.parseInt(st.nextToken());
+        
+        System.out.println(shortestTime(N, K));
     }
-
-    public static int findShortestTime(int N, int K) {
-        int max = 100_000;
+    
+    public static int shortestTime(int N, int K) {
+        int max = 100000;
         boolean[] visited = new boolean[max + 1];
-        Queue<int[]> queue = new LinkedList<>();
-
-        queue.add(new int[]{N, 0});
+        Queue<int[]> que = new LinkedList<>();
+        
+        que.add(new int[]{N, 0});
         visited[N] = true;
-
-        while (!queue.isEmpty()) {
-            int[] current = queue.poll();
+        
+        while(!que.isEmpty()) {
+            int[] current = que.poll();
             int position = current[0];
             int time = current[1];
-
+            
             if (position == K) {
                 return time;
             }
-
-            int[] nextPositions = {position - 1, position + 1, position * 2};
-            for (int next : nextPositions) {
+            
+            int[] nextPosition = {position - 1, position + 1, 2 * position};
+            for (int next : nextPosition) {
                 if (next >= 0 && next <= max && !visited[next]) {
                     visited[next] = true;
-                    queue.add(new int[]{next, time + 1});
+                    que.add(new int[]{next, time + 1});
                 }
             }
         }
-
+        
         return -1;
     }
 }
