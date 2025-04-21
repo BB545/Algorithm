@@ -2,53 +2,50 @@ import java.io.*;
 import java.util.*;
 
 class Main {
-    static int F, S, G, U, D;
-    static boolean[] visited;
-    static int[] dx;
+    static int F, U, D;
     
     public static void main(String[] args) throws IOException {
         BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
         StringTokenizer st = new StringTokenizer(br.readLine());
         F = Integer.parseInt(st.nextToken());
-        S = Integer.parseInt(st.nextToken());
-        G = Integer.parseInt(st.nextToken());
+        int S = Integer.parseInt(st.nextToken());
+        int G = Integer.parseInt(st.nextToken());
         U = Integer.parseInt(st.nextToken());
         D = Integer.parseInt(st.nextToken());
         
-        if (bfs() == -1) {
-            System.out.println("use the stairs");
-        } else {
-            System.out.println(bfs());
-        }
+        bfs(S, G);
     }
     
-    public static int bfs() {
-        if (G == S) return 0;
+    public static void bfs(int start, int end) {
+        if (start == end) {
+            System.out.println(0);
+            return;
+        }
         
-        Queue<int[]> que = new LinkedList<>();
-        visited = new boolean[F + 1];
-        dx = new int[]{U, -D};
+        Queue<Integer> que = new LinkedList<>();
+        int[] dist = new int[F + 1];
+        Arrays.fill(dist, -1);
         
-        que.add(new int[]{S, 0});
-        visited[S] = true;
-            
+        que.add(start);
+        dist[start] = 0;
+        
         while(!que.isEmpty()) {
-            int[] current = que.poll();
-            int cS = current[0];
-            int cnt = current[1];
+            int current = que.poll();
             
-            for (int i = 0; i < 2; i++) {
-                int nS = cS + dx[i];
-                
-                if (nS >= 1 && nS <= F && !visited[nS]) {
-                    que.add(new int[]{nS, cnt + 1});
-                    visited[nS] = true;
+            int[] nextLocations = {current + U, current - D};
+            for (int next : nextLocations) {
+                if (next > 0 && next <= F && dist[next] == -1) {
+                    que.add(next);
+                    dist[next] = dist[current] + 1;
                     
-                    if (nS == G) return cnt + 1;
+                    if (next == end) {
+                        System.out.println(dist[next]);
+                        return;
+                    }
                 }
             }
         }
-        
-        return -1;
+        System.out.println("use the stairs");
+        return;
     }
 }
