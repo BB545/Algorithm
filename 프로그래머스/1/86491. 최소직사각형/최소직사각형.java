@@ -1,17 +1,19 @@
-import java.util.*;
-
 class Solution {
     public int solution(int[][] sizes) {
-        int max_height = 0;
-        int max_width = 0;
+        int answer = 0;
+        int maxWidth = 0;
+        int maxHeight = 0;
         
-        for (int i = 0; i < sizes.length; i++) {
-            Arrays.sort(sizes[i]);
+        for (int[] size : sizes) {
+            int w = Math.max(size[0], size[1]);
+            int h = Math.min(size[0], size[1]);
             
-            max_height = Math.max(max_height, sizes[i][0]);
-            max_width = Math.max(max_width, sizes[i][1]);
+            maxWidth = Math.max(maxWidth, w);
+            maxHeight = Math.max(maxHeight, h);
         }
         
-        return max_height * max_width;
+        answer = maxWidth * maxHeight;
+        
+        return answer;
     }
 }
