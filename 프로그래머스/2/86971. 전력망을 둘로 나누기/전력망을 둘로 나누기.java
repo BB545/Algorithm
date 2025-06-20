@@ -7,7 +7,7 @@ class Solution {
         for (int i = 0; i < wires.length; i++) {
             List<List<Integer>> graph = new ArrayList<>();
             
-            for (int j = 0; j <= n; j++) {
+            for (int j = 0; j <= n; j++) { // 그래프 노드 1부터 시작 = n + 1개로 만들어주기
                 graph.add(new ArrayList<>());
             }
             
@@ -25,21 +25,20 @@ class Solution {
             int diff = Math.abs(n - 2 * cnt);
             min = Math.min(min, diff);
         }
-        
         return min;
     }
     
     public static int bfs(List<List<Integer>> graph, int n, int start) {
-        boolean[] visited = new boolean[n + 1]; // 송전탑 번호 1부터 시작
+        boolean[] visited = new boolean[n + 1]; // 노드가 1부터 시작
         Queue<Integer> que = new LinkedList<>();
-        que.add(start);
         visited[start] = true;
         int cnt = 1;
+        que.add(start);
         
         while (!que.isEmpty()) {
-            int current = que.poll();
+            int x = que.poll();
             
-            for (int next : graph.get(current)) {
+            for (int next : graph.get(x)) {
                 if (!visited[next]) {
                     visited[next] = true;
                     que.add(next);
@@ -47,7 +46,6 @@ class Solution {
                 }
             }
         }
-        
         return cnt;
     }
 }
