@@ -1,4 +1,4 @@
-name: LeetHub Organizer
+name: LeetHub Organizer (Force Move)
 
 on:
   push:
@@ -15,143 +15,91 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
         with:
-          fetch-depth: 2
+          fetch-depth: 1
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 1) LeetHub 커밋인지 확인 (아니면 이후 step 전부 스킵)
+      # 1️⃣ LeetHub 커밋인지 확인
       - name: Check LeetHub Commit
         id: check
         run: |
           COMMIT_MSG="$(git log -1 --pretty=%B)"
-          echo "Commit message:"
           echo "$COMMIT_MSG"
 
-          if [[ "$COMMIT_MSG" == *"LeetHub"* ]]; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            echo "commit_msg<<EOF" >> "$GITHUB_OUTPUT"
-            echo "$COMMIT_MSG" >> "$GITHUB_OUTPUT"
-            echo "EOF" >> "$GITHUB_OUTPUT"
-          else
-            echo "should_run=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      # 2) 변경된 문제 폴더 감지 (기존 재제출 포함)
-      - name: Detect Problem Folder
-        id: detect
-        if: steps.check.outputs.should_run == 'true'
-        run: |
-          set -e
-
-          # fetch-depth=2라도, 리포 첫 커밋/특수상황 대비
-          if git rev-parse HEAD~1 >/dev/null 2>&1; then
-            CHANGED="$(git diff --name-only HEAD~1 HEAD)"
-          else
-            CHANGED="$(git show --name-only --pretty="" HEAD)"
-          fi
-
-          echo "Changed files:"
-          echo "$CHANGED"
-
-          FOUND=""
-          for DIR in $(echo "$CHANGED" | awk -F/ '{print $1}' | sort -u); do
-            case "$DIR" in
-              LeetCode|백준|프로그래머스|.github|README.md|stats.json)
-                continue
-                ;;
-            esac
-
-            # LeetHub 최상위 폴더 패턴: 0001-two-sum 같은 형태
-            if [[ "$DIR" =~ ^[0-9]{4}- ]]; then
-              FOUND="$DIR"
-              break
-            fi
-          done
-
-          if [ -z "$FOUND" ]; then
-            echo "found=false" >> "$GITHUB_OUTPUT"
-            echo "package=" >> "$GITHUB_OUTPUT"
-            echo "No problem folder detected."
+          if [[ "$COMMIT_MSG" != *"LeetHub"* ]]; then
+            echo "LeetHub 커밋 아님 → 종료"
             exit 0
           fi
 
-          echo "found=true" >> "$GITHUB_OUTPUT"
-          echo "package=$FOUND" >> "$GITHUB_OUTPUT"
-          echo "Detected problem folder: $FOUND"
+          echo "commit_msg<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMIT_MSG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
-      # 3) 난이도 추출 (package가 있을 때만)
-      - name: Extract Level
-        id: level
-        if: steps.detect.outputs.found == 'true'
-        run: |
-          PACKAGE="${{ steps.detect.outputs.package }}"
-          README="$PACKAGE/README.md"
-
-          LEVEL="Unknown"
-          if [ -f "$README" ]; then
-            # LeetHub README가 <h3>Easy</h3> 형태인 경우
-            TMP=$(grep -oP '(?<=<h3>).*?(?=</h3>)' "$README" | head -n 1 || true)
-            if [ -n "$TMP" ]; then
-              LEVEL="$TMP"
-            fi
-          fi
-
-          echo "level=$LEVEL" >> "$GITHUB_OUTPUT"
-          echo "Level: $LEVEL"
-
-      # 4) 이동/병합 (package가 있을 때만)
-      - name: Move to LeetCode
-        if: steps.detect.outputs.found == 'true'
+      # 2️⃣ root에 남아있는 모든 000x-* 문제 폴더 강제 이동
+      - name: Force Move All LeetHub Folders
         run: |
           set -e
 
-          PACKAGE="${{ steps.detect.outputs.package }}"
-          LEVEL="${{ steps.level.outputs.level }}"
           ROOT="LeetCode"
+          MOVED=false
 
-          echo "PACKAGE=$PACKAGE"
-          echo "LEVEL=$LEVEL"
+          mkdir -p "$ROOT"
 
-          # 혹시 LEVEL이 이상한 문자열이면 폴더명 정리 (공백 제거)
-          LEVEL_CLEAN="$(echo "$LEVEL" | tr -d '\r' | xargs)"
-          [ -z "$LEVEL_CLEAN" ] && LEVEL_CLEAN="Unknown"
+          for DIR in 0[0-9][0-9][0-9]-*; do
+            # glob 매칭 실패 시 그대로 문자열이 나오는 것 방지
+            [ -d "$DIR" ] || continue
 
-          # 기존 위치(LeetCode/*/PACKAGE) 탐색
-          FOUND_PATH=""
-          if [ -d "$ROOT" ]; then
-            for d in "$ROOT"/*; do
-              if [ -d "$d/$PACKAGE" ]; then
-                FOUND_PATH="$d/$PACKAGE"
-                break
-              fi
-            done
+            echo "발견된 LeetHub 문제 폴더: $DIR"
+
+            # 난이도 추출 (README 기준)
+            LEVEL="Unknown"
+            if [ -f "$DIR/README.md" ]; then
+              TMP=$(grep -oP '(?<=<h3>).*?(?=</h3>)' "$DIR/README.md" | head -n 1 || true)
+              [ -n "$TMP" ] && LEVEL="$TMP"
+            fi
+
+            LEVEL_CLEAN="$(echo "$LEVEL" | xargs)"
+            [ -z "$LEVEL_CLEAN" ] && LEVEL_CLEAN="Unknown"
+
+            DEST="$ROOT/$LEVEL_CLEAN/$DIR"
+
+            # 이미 LeetCode 안에 있으면 병합
+            FOUND=""
+            if [ -d "$ROOT" ]; then
+              for d in "$ROOT"/*; do
+                if [ -d "$d/$DIR" ]; then
+                  FOUND="$d/$DIR"
+                  break
+                fi
+              done
+            fi
+
+            if [ -n "$FOUND" ]; then
+              echo "→ 기존 폴더 발견, 병합: $FOUND"
+              mv "$DIR"/* "$FOUND"/
+              rm -rf "$DIR"
+            else
+              echo "→ 새 위치로 이동: $DEST"
+              mkdir -p "$ROOT/$LEVEL_CLEAN"
+              mv "$DIR" "$ROOT/$LEVEL_CLEAN/"
+            fi
+
+            MOVED=true
+          done
+
+          if [ "$MOVED" = false ]; then
+            echo "이동할 LeetHub 폴더 없음"
           fi
 
-          if [ -n "$FOUND_PATH" ]; then
-            echo "Existing folder found -> merge into $FOUND_PATH"
-            mv "$PACKAGE"/* "$FOUND_PATH"/
-            rm -rf "$PACKAGE"
-          else
-            echo "New folder -> move into $ROOT/$LEVEL_CLEAN/"
-            mkdir -p "$ROOT/$LEVEL_CLEAN"
-            mv "$PACKAGE" "$ROOT/$LEVEL_CLEAN/"
-          fi
-
-      # 5) 커밋/푸시 (실제 변경이 있을 때만)
+      # 3️⃣ 커밋 & 푸시
       - name: Commit and Push
-        if: steps.detect.outputs.found == 'true'
         run: |
-          set -e
-
-          # ⚠️ 여기 반드시 본인 정보로 바꾸기
           git config user.name "BB545"
           git config user.email "black1016@hanmail.net"
 
           git add .
-          git status
 
-          # 변경 없으면 커밋 스킵
           if git diff --cached --quiet; then
-            echo "No changes to commit."
+            echo "변경 사항 없음"
             exit 0
           fi
 
