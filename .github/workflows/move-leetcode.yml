@@ -8,88 +8,7 @@ permissions:
   contents: write
 
 jobs:
-  detect:
-    runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.check_leethub.outputs.should_run }}
-      package_name: ${{ steps.detect_package.outputs.package_name }}
-      commit_msg: ${{ steps.check_leethub.outputs.commit_msg }}
-      level: ${{ steps.extract_level.outputs.leetcode_level }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 2
-
-      # 1️⃣ LeetHub 커밋인지 확인
-      - name: Check if LeetHub Commit
-        id: check_leethub
-        run: |
-          COMMIT_MSG="$(git log -1 --pretty=%B)"
-          echo "Latest commit message:"
-          echo "$COMMIT_MSG"
-
-          if [[ "$COMMIT_MSG" == *"LeetHub"* ]]; then
-            echo "should_run=true" >> $GITHUB_OUTPUT
-            echo "commit_msg<<EOF" >> $GITHUB_OUTPUT
-            echo "$COMMIT_MSG" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-            echo "LeetHub 커밋 확인 ✅"
-          else
-            echo "should_run=false" >> $GITHUB_OUTPUT
-            echo "commit_msg=" >> $GITHUB_OUTPUT
-            echo "LeetHub 커밋 아님 ❌"
-          fi
-
-      # 2️⃣ 변경된 문제 폴더 감지 (기존 문제 재제출 포함)
-      - name: Detect Solve Package
-        id: detect_package
-        if: steps.check_leethub.outputs.should_run == 'true'
-        run: |
-          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
-          echo "Changed files:"
-          echo "$CHANGED_FILES"
-
-          for DIR in $(echo "$CHANGED_FILES" | awk -F/ '{print $1}' | sort -u); do
-            case "$DIR" in
-              LeetCode|백준|프로그래머스|.github|README.md|stats.json)
-                continue
-                ;;
-            esac
-
-            # LeetHub 문제 폴더 패턴: 0001-two-sum
-            if [[ "$DIR" =~ ^[0-9]{4}- ]]; then
-              echo "문제 폴더 감지: $DIR"
-              echo "package_name=$DIR" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-          done
-
-          echo "package_name=" >> $GITHUB_OUTPUT
-          echo "문제 폴더 감지 실패"
-
-      # 3️⃣ README에서 난이도 추출
-      - name: Extract Level from README
-        id: extract_level
-        if: steps.detect_package.outputs.package_name != ''
-        run: |
-          PACKAGE_NAME="${{ steps.detect_package.outputs.package_name }}"
-          README_PATH="$PACKAGE_NAME/README.md"
-
-          LEVEL="Unknown"
-
-          if [ -f "$README_PATH" ]; then
-            TMP=$(grep -oP '(?<=<h3>).*?(?=</h3>)' "$README_PATH" | head -n 1 || true)
-            [ -n "$TMP" ] && LEVEL="$TMP"
-          fi
-
-          echo "leetcode_level=$LEVEL" >> $GITHUB_OUTPUT
-          echo "감지된 난이도: $LEVEL"
-
   move:
-    needs: detect
-    if: ${{ needs.detect.outputs.should_run == 'true' && needs.detect.outputs.package_name != '' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -98,44 +17,73 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 4️⃣ LeetCode 폴더로 이동
-      - name: Move Directory
+      # 1️⃣ LeetHub 커밋인지 확인
+      - name: Check LeetHub Commit
         run: |
-          PACKAGE_NAME="${{ needs.detect.outputs.package_name }}"
-          LEVEL_DIRECTORY="${{ needs.detect.outputs.level }}"
-          ROOT_DIR="LeetCode"
-
-          echo "이동 대상: $PACKAGE_NAME"
-          echo "난이도: $LEVEL_DIRECTORY"
-
-          FOUND_PATH=""
-
-          if [ -d "$ROOT_DIR" ]; then
-            for dir in "$ROOT_DIR"/*; do
-              if [ -d "$dir/$PACKAGE_NAME" ]; then
-                FOUND_PATH="$dir/$PACKAGE_NAME"
-                break
-              fi
-            done
-          fi
-
-          if [ -n "$FOUND_PATH" ]; then
-            echo "기존 문제 발견 → 병합"
-            mv "$PACKAGE_NAME"/* "$FOUND_PATH"/
-            rmdir "$PACKAGE_NAME" || true
-          else
-            echo "새 문제 이동"
-            mkdir -p "$ROOT_DIR/$LEVEL_DIRECTORY"
-            mv "$PACKAGE_NAME" "$ROOT_DIR/$LEVEL_DIRECTORY/"
-          fi
-
-      # 5️⃣ 커밋 & 푸시
-      - name: Commit and Push
-        run: |
-          COMMIT_MSG="${{ needs.detect.outputs.commit_msg }}"
-          echo "커밋 메시지:"
+          COMMIT_MSG="$(git log -1 --pretty=%B)"
           echo "$COMMIT_MSG"
 
+          if [[ "$COMMIT_MSG" != *"LeetHub"* ]]; then
+            echo "LeetHub 커밋 아님 → 종료"
+            exit 0
+          fi
+
+      # 2️⃣ 루트에 있는 모든 000x-* 폴더 이동 (재제출 포함)
+      - name: Move All LeetHub Folders
+        run: |
+          shopt -s nullglob
+
+          ROOT="LeetCode"
+          mkdir -p "$ROOT"
+
+          MOVED=false
+
+          for DIR in 0[0-9][0-9][0-9]-*; do
+            [ -d "$DIR" ] || continue
+
+            echo "처리 대상: $DIR"
+
+            # 난이도 추출
+            LEVEL="Unknown"
+            if [ -f "$DIR/README.md" ]; then
+              TMP=$(grep -oP '(?<=<h3>).*?(?=</h3>)' "$DIR/README.md" | head -n 1 || true)
+              [ -n "$TMP" ] && LEVEL="$TMP"
+            fi
+
+            LEVEL="$(echo "$LEVEL" | xargs)"
+            [ -z "$LEVEL" ] && LEVEL="Unknown"
+
+            FOUND=""
+
+            if [ -d "$ROOT" ]; then
+              for d in "$ROOT"/*; do
+                if [ -d "$d/$DIR" ]; then
+                  FOUND="$d/$DIR"
+                  break
+                fi
+              done
+            fi
+
+            if [ -n "$FOUND" ]; then
+              echo "→ 기존 폴더 병합: $FOUND"
+              mv "$DIR"/* "$FOUND"/
+              rm -rf "$DIR"
+            else
+              echo "→ 새 위치로 이동: $ROOT/$LEVEL/$DIR"
+              mkdir -p "$ROOT/$LEVEL"
+              mv "$DIR" "$ROOT/$LEVEL/"
+            fi
+
+            MOVED=true
+          done
+
+          if [ "$MOVED" = false ]; then
+            echo "이동할 LeetHub 폴더 없음"
+          fi
+
+      # 3️⃣ 커밋 & 푸시
+      - name: Commit and Push
+        run: |
           git config --global user.name "BB545"
           git config --global user.email "black1016@hanmail.net"
 
@@ -146,5 +94,5 @@ jobs:
             exit 0
           fi
 
-          git commit -m "$COMMIT_MSG"
+          git commit -m "chore: organize LeetHub folders"
           git push
