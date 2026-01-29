@@ -18,103 +18,142 @@ jobs:
           fetch-depth: 2
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 1️⃣ LeetHub 커밋 확인
+      # 1) LeetHub 커밋인지 확인 (아니면 이후 step 전부 스킵)
       - name: Check LeetHub Commit
         id: check
         run: |
-          COMMIT_MSG=$(git log -1 --pretty=%B)
+          COMMIT_MSG="$(git log -1 --pretty=%B)"
+          echo "Commit message:"
           echo "$COMMIT_MSG"
 
-          if [[ "$COMMIT_MSG" != *"LeetHub"* ]]; then
-            echo "LeetHub 커밋 아님 → 종료"
-            exit 0
+          if [[ "$COMMIT_MSG" == *"LeetHub"* ]]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "commit_msg<<EOF" >> "$GITHUB_OUTPUT"
+            echo "$COMMIT_MSG" >> "$GITHUB_OUTPUT"
+            echo "EOF" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
           fi
 
-          echo "commit_msg<<EOF" >> $GITHUB_OUTPUT
-          echo "$COMMIT_MSG" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      # 2️⃣ 변경된 문제 폴더 감지 (기존 문제 재제출 포함)
+      # 2) 변경된 문제 폴더 감지 (기존 재제출 포함)
       - name: Detect Problem Folder
         id: detect
+        if: steps.check.outputs.should_run == 'true'
         run: |
-          CHANGED=$(git diff --name-only HEAD~1 HEAD)
-          echo "변경 파일:"
+          set -e
+
+          # fetch-depth=2라도, 리포 첫 커밋/특수상황 대비
+          if git rev-parse HEAD~1 >/dev/null 2>&1; then
+            CHANGED="$(git diff --name-only HEAD~1 HEAD)"
+          else
+            CHANGED="$(git show --name-only --pretty="" HEAD)"
+          fi
+
+          echo "Changed files:"
           echo "$CHANGED"
 
+          FOUND=""
           for DIR in $(echo "$CHANGED" | awk -F/ '{print $1}' | sort -u); do
-            # 이미 정리된 폴더 제외
             case "$DIR" in
-              LeetCode|백준|프로그래머스|.github)
+              LeetCode|백준|프로그래머스|.github|README.md|stats.json)
                 continue
                 ;;
             esac
 
-            # LeetHub 문제 폴더 패턴 (0001-xxx)
+            # LeetHub 최상위 폴더 패턴: 0001-two-sum 같은 형태
             if [[ "$DIR" =~ ^[0-9]{4}- ]]; then
-              echo "문제 폴더 감지: $DIR"
-              echo "package=$DIR" >> $GITHUB_OUTPUT
-              exit 0
+              FOUND="$DIR"
+              break
             fi
           done
 
-          echo "문제 폴더 없음 → 종료"
-          exit 0
+          if [ -z "$FOUND" ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "package=" >> "$GITHUB_OUTPUT"
+            echo "No problem folder detected."
+            exit 0
+          fi
 
-      # 3️⃣ 난이도 추출 (README)
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "package=$FOUND" >> "$GITHUB_OUTPUT"
+          echo "Detected problem folder: $FOUND"
+
+      # 3) 난이도 추출 (package가 있을 때만)
       - name: Extract Level
         id: level
+        if: steps.detect.outputs.found == 'true'
         run: |
           PACKAGE="${{ steps.detect.outputs.package }}"
           README="$PACKAGE/README.md"
 
-          if [ ! -f "$README" ]; then
-            echo "level=Unknown" >> $GITHUB_OUTPUT
-            exit 0
+          LEVEL="Unknown"
+          if [ -f "$README" ]; then
+            # LeetHub README가 <h3>Easy</h3> 형태인 경우
+            TMP=$(grep -oP '(?<=<h3>).*?(?=</h3>)' "$README" | head -n 1 || true)
+            if [ -n "$TMP" ]; then
+              LEVEL="$TMP"
+            fi
           fi
 
-          LEVEL=$(grep -oP '(?<=<h3>).*?(?=</h3>)' "$README" | head -n 1)
-          [ -z "$LEVEL" ] && LEVEL="Unknown"
+          echo "level=$LEVEL" >> "$GITHUB_OUTPUT"
+          echo "Level: $LEVEL"
 
-          echo "level=$LEVEL" >> $GITHUB_OUTPUT
-
-      # 4️⃣ LeetCode 폴더로 이동 / 병합
+      # 4) 이동/병합 (package가 있을 때만)
       - name: Move to LeetCode
+        if: steps.detect.outputs.found == 'true'
         run: |
+          set -e
+
           PACKAGE="${{ steps.detect.outputs.package }}"
           LEVEL="${{ steps.level.outputs.level }}"
           ROOT="LeetCode"
 
-          echo "이동 대상: $PACKAGE"
-          echo "난이도: $LEVEL"
+          echo "PACKAGE=$PACKAGE"
+          echo "LEVEL=$LEVEL"
 
-          FOUND=""
+          # 혹시 LEVEL이 이상한 문자열이면 폴더명 정리 (공백 제거)
+          LEVEL_CLEAN="$(echo "$LEVEL" | tr -d '\r' | xargs)"
+          [ -z "$LEVEL_CLEAN" ] && LEVEL_CLEAN="Unknown"
 
+          # 기존 위치(LeetCode/*/PACKAGE) 탐색
+          FOUND_PATH=""
           if [ -d "$ROOT" ]; then
             for d in "$ROOT"/*; do
               if [ -d "$d/$PACKAGE" ]; then
-                FOUND="$d/$PACKAGE"
+                FOUND_PATH="$d/$PACKAGE"
                 break
               fi
             done
           fi
 
-          if [ -n "$FOUND" ]; then
-            echo "기존 문제 발견 → 병합"
-            mv "$PACKAGE"/* "$FOUND"/
+          if [ -n "$FOUND_PATH" ]; then
+            echo "Existing folder found -> merge into $FOUND_PATH"
+            mv "$PACKAGE"/* "$FOUND_PATH"/
             rm -rf "$PACKAGE"
           else
-            echo "새 문제 이동"
-            mkdir -p "$ROOT/$LEVEL"
-            mv "$PACKAGE" "$ROOT/$LEVEL/"
+            echo "New folder -> move into $ROOT/$LEVEL_CLEAN/"
+            mkdir -p "$ROOT/$LEVEL_CLEAN"
+            mv "$PACKAGE" "$ROOT/$LEVEL_CLEAN/"
           fi
 
-      # 5️⃣ 커밋 & 푸시
+      # 5) 커밋/푸시 (실제 변경이 있을 때만)
       - name: Commit and Push
+        if: steps.detect.outputs.found == 'true'
         run: |
-          git config user.name "YOUR_GITHUB_NAME"
-          git config user.email "YOUR_EMAIL@example.com"
+          set -e
+
+          # ⚠️ 여기 반드시 본인 정보로 바꾸기
+          git config user.name "BB545"
+          git config user.email "black1016@hanmail.net"
 
           git add .
-          git commit -m "${{ steps.check.outputs.commit_msg }}" || echo "변경 없음"
+          git status
+
+          # 변경 없으면 커밋 스킵
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "${{ steps.check.outputs.commit_msg }}"
           git push
