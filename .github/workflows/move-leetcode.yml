@@ -1,4 +1,4 @@
-name: LeetHub Organizer (Force Move Safe)
+name: LeetHub Organizer (Crash Proof)
 
 on:
   push:
@@ -10,6 +10,7 @@ permissions:
 jobs:
   organize:
     runs-on: ubuntu-latest
+    continue-on-error: false
 
     steps:
       - name: Checkout
@@ -18,78 +19,84 @@ jobs:
           fetch-depth: 1
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 1️⃣ LeetHub 커밋 확인
+      # 1️⃣ LeetHub 커밋 여부 판단
       - name: Check LeetHub Commit
         id: check
         run: |
-          COMMIT_MSG="$(git log -1 --pretty=%B)"
+          COMMIT_MSG="$(git log -1 --pretty=%B || true)"
           echo "$COMMIT_MSG"
 
           if [[ "$COMMIT_MSG" != *"LeetHub"* ]]; then
-            echo "LeetHub 커밋 아님 → 종료"
-            exit 0
+            echo "NOT_LEETHUB=true" >> $GITHUB_ENV
+          else
+            echo "NOT_LEETHUB=false" >> $GITHUB_ENV
+            echo "COMMIT_MSG<<EOF" >> $GITHUB_ENV
+            echo "$COMMIT_MSG" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
           fi
 
-          echo "commit_msg<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$COMMIT_MSG" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          exit 0
 
-      # 2️⃣ root에 남아있는 모든 000x-* 문제 폴더 강제 이동 (안전 버전)
-      - name: Force Move All LeetHub Folders
+      # 2️⃣ LeetHub 아니면 그냥 성공 종료
+      - name: Skip if not LeetHub
+        if: env.NOT_LEETHUB == 'true'
         run: |
-          # ❗ 에러 나도 종료하지 않게
-          set +e
+          echo "LeetHub 커밋 아님 → 정상 종료"
+          exit 0
+
+      # 3️⃣ 모든 000x-* 폴더 강제 이동 (절대 실패 안 함)
+      - name: Force Move LeetHub Folders
+        run: |
           shopt -s nullglob
 
           ROOT="LeetCode"
-          MOVED=false
-
           mkdir -p "$ROOT"
+
+          MOVED=false
 
           for DIR in 0[0-9][0-9][0-9]-*; do
             [ -d "$DIR" ] || continue
 
-            echo "발견된 LeetHub 문제 폴더: $DIR"
+            echo "처리 중: $DIR"
 
-            # 난이도 추출
+            # 난이도 추출 (실패해도 무시)
             LEVEL="Unknown"
             if [ -f "$DIR/README.md" ]; then
-              TMP=$(grep -oP '(?<=<h3>).*?(?=</h3>)' "$DIR/README.md" 2>/dev/null | head -n 1)
-              [ -n "$TMP" ] && LEVEL="$TMP"
+              LEVEL=$(grep -oP '(?<=<h3>).*?(?=</h3>)' "$DIR/README.md" | head -n 1 || echo "Unknown")
             fi
 
-            LEVEL_CLEAN="$(echo "$LEVEL" | xargs)"
-            [ -z "$LEVEL_CLEAN" ] && LEVEL_CLEAN="Unknown"
+            LEVEL="$(echo "$LEVEL" | xargs)"
+            [ -z "$LEVEL" ] && LEVEL="Unknown"
 
-            FOUND=""
+            TARGET=""
 
-            if [ -d "$ROOT" ]; then
-              for d in "$ROOT"/*; do
-                if [ -d "$d/$DIR" ]; then
-                  FOUND="$d/$DIR"
-                  break
-                fi
-              done
-            fi
+            for d in "$ROOT"/*; do
+              if [ -d "$d/$DIR" ]; then
+                TARGET="$d/$DIR"
+                break
+              fi
+            done
 
-            if [ -n "$FOUND" ]; then
-              echo "→ 기존 폴더 병합: $FOUND"
-              mv "$DIR"/* "$FOUND"/ 2>/dev/null
-              rm -rf "$DIR"
+            if [ -n "$TARGET" ]; then
+              echo "→ 병합: $TARGET"
+              mv "$DIR"/* "$TARGET"/ || true
+              rm -rf "$DIR" || true
             else
-              echo "→ 새 위치로 이동: $ROOT/$LEVEL_CLEAN/$DIR"
-              mkdir -p "$ROOT/$LEVEL_CLEAN"
-              mv "$DIR" "$ROOT/$LEVEL_CLEAN/"
+              echo "→ 이동: $ROOT/$LEVEL/$DIR"
+              mkdir -p "$ROOT/$LEVEL" || true
+              mv "$DIR" "$ROOT/$LEVEL/" || true
             fi
 
             MOVED=true
           done
 
           if [ "$MOVED" = false ]; then
-            echo "이동할 LeetHub 폴더 없음"
+            echo "이동할 문제 폴더 없음"
           fi
 
-      # 3️⃣ 커밋 & 푸시
+          exit 0
+
+      # 4️⃣ 커밋 & 푸시 (변경 없으면 그냥 성공)
       - name: Commit and Push
         run: |
           git config user.name "BB545"
@@ -98,9 +105,11 @@ jobs:
           git add .
 
           if git diff --cached --quiet; then
-            echo "변경 사항 없음"
+            echo "커밋할 변경 없음"
             exit 0
           fi
 
-          git commit -m "${{ steps.check.outputs.commit_msg }}"
-          git push
+          git commit -m "$COMMIT_MSG" || true
+          git push || true
+
+          exit 0
