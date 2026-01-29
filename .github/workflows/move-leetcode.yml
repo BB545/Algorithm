@@ -1,4 +1,4 @@
-name: LeetHub Organizer (Force Move)
+name: LeetHub Organizer (Force Move Safe)
 
 on:
   push:
@@ -18,7 +18,7 @@ jobs:
           fetch-depth: 1
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 1️⃣ LeetHub 커밋인지 확인
+      # 1️⃣ LeetHub 커밋 확인
       - name: Check LeetHub Commit
         id: check
         run: |
@@ -30,14 +30,16 @@ jobs:
             exit 0
           fi
 
-          echo "commit_msg<<EOF" >> $GITHUB_OUTPUT
-          echo "$COMMIT_MSG" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          echo "commit_msg<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$COMMIT_MSG" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
-      # 2️⃣ root에 남아있는 모든 000x-* 문제 폴더 강제 이동
+      # 2️⃣ root에 남아있는 모든 000x-* 문제 폴더 강제 이동 (안전 버전)
       - name: Force Move All LeetHub Folders
         run: |
-          set -e
+          # ❗ 에러 나도 종료하지 않게
+          set +e
+          shopt -s nullglob
 
           ROOT="LeetCode"
           MOVED=false
@@ -45,25 +47,22 @@ jobs:
           mkdir -p "$ROOT"
 
           for DIR in 0[0-9][0-9][0-9]-*; do
-            # glob 매칭 실패 시 그대로 문자열이 나오는 것 방지
             [ -d "$DIR" ] || continue
 
             echo "발견된 LeetHub 문제 폴더: $DIR"
 
-            # 난이도 추출 (README 기준)
+            # 난이도 추출
             LEVEL="Unknown"
             if [ -f "$DIR/README.md" ]; then
-              TMP=$(grep -oP '(?<=<h3>).*?(?=</h3>)' "$DIR/README.md" | head -n 1 || true)
+              TMP=$(grep -oP '(?<=<h3>).*?(?=</h3>)' "$DIR/README.md" 2>/dev/null | head -n 1)
               [ -n "$TMP" ] && LEVEL="$TMP"
             fi
 
             LEVEL_CLEAN="$(echo "$LEVEL" | xargs)"
             [ -z "$LEVEL_CLEAN" ] && LEVEL_CLEAN="Unknown"
 
-            DEST="$ROOT/$LEVEL_CLEAN/$DIR"
-
-            # 이미 LeetCode 안에 있으면 병합
             FOUND=""
+
             if [ -d "$ROOT" ]; then
               for d in "$ROOT"/*; do
                 if [ -d "$d/$DIR" ]; then
@@ -74,11 +73,11 @@ jobs:
             fi
 
             if [ -n "$FOUND" ]; then
-              echo "→ 기존 폴더 발견, 병합: $FOUND"
-              mv "$DIR"/* "$FOUND"/
+              echo "→ 기존 폴더 병합: $FOUND"
+              mv "$DIR"/* "$FOUND"/ 2>/dev/null
               rm -rf "$DIR"
             else
-              echo "→ 새 위치로 이동: $DEST"
+              echo "→ 새 위치로 이동: $ROOT/$LEVEL_CLEAN/$DIR"
               mkdir -p "$ROOT/$LEVEL_CLEAN"
               mv "$DIR" "$ROOT/$LEVEL_CLEAN/"
             fi
