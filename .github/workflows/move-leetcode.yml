@@ -8,145 +8,113 @@ permissions:
   contents: write
 
 jobs:
-  detect:
+  organize:
     runs-on: ubuntu-latest
-    outputs:
-      should_run: ${{ steps.check_leethub.outputs.should_run }}
-      package_name: ${{ steps.detect_package.outputs.package_name }}
-      commit_msg: ${{ steps.check_leethub.outputs.commit_msg }}
-      level: ${{ steps.extract_level.outputs.leetcode_level }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v3
         with:
           fetch-depth: 2
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 1️⃣ LeetHub 커밋 감지
-      - name: Check if LeetHub Commit
-        id: check_leethub
+      # 1️⃣ LeetHub 커밋 확인
+      - name: Check LeetHub Commit
+        id: check
         run: |
           COMMIT_MSG=$(git log -1 --pretty=%B)
-          echo "Latest commit message:"
           echo "$COMMIT_MSG"
 
-          if [[ "$COMMIT_MSG" == *"LeetHub"* ]]; then
-            echo "should_run=true" >> $GITHUB_OUTPUT
-            echo "commit_msg<<EOF" >> $GITHUB_OUTPUT
-            echo "$COMMIT_MSG" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-            echo "LeetHub 커밋 감지됨 ✅"
-          else
-            echo "should_run=false" >> $GITHUB_OUTPUT
-            echo "일반 커밋 → 작업 스킵 ❌"
+          if [[ "$COMMIT_MSG" != *"LeetHub"* ]]; then
+            echo "LeetHub 커밋 아님 → 종료"
+            exit 0
           fi
 
-      # 2️⃣ LeetHub 문제 폴더 감지 (신규 + 재제출 대응)
-      - name: Detect LeetHub Problem Folder
-        id: detect_package
-        if: steps.check_leethub.outputs.should_run == 'true'
+          echo "commit_msg<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMIT_MSG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      # 2️⃣ 변경된 문제 폴더 감지 (기존 문제 재제출 포함)
+      - name: Detect Problem Folder
+        id: detect
         run: |
-          echo "변경된 파일 목록:"
-          git diff --name-only HEAD~1 HEAD
+          CHANGED=$(git diff --name-only HEAD~1 HEAD)
+          echo "변경 파일:"
+          echo "$CHANGED"
 
-          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
-
-          for DIR in $(echo "$CHANGED_FILES" | awk -F/ '{print $1}' | sort -u); do
+          for DIR in $(echo "$CHANGED" | awk -F/ '{print $1}' | sort -u); do
+            # 이미 정리된 폴더 제외
             case "$DIR" in
               LeetCode|백준|프로그래머스|.github)
                 continue
                 ;;
             esac
 
-            # 이미 LeetCode 안에 있으면 skip
-            if [[ "$DIR" == LeetCode* ]]; then
-              continue
-            fi
-
-            if [ -f "$DIR/README.md" ]; then
+            # LeetHub 문제 폴더 패턴 (0001-xxx)
+            if [[ "$DIR" =~ ^[0-9]{4}- ]]; then
               echo "문제 폴더 감지: $DIR"
-              echo "package_name=$DIR" >> $GITHUB_OUTPUT
+              echo "package=$DIR" >> $GITHUB_OUTPUT
               exit 0
             fi
           done
 
-          echo "문제 폴더 감지 실패"
+          echo "문제 폴더 없음 → 종료"
+          exit 0
 
-      # 3️⃣ README에서 난이도 추출
-      - name: Extract Level from README
-        id: extract_level
-        if: steps.detect_package.outputs.package_name != ''
+      # 3️⃣ 난이도 추출 (README)
+      - name: Extract Level
+        id: level
         run: |
-          PACKAGE_NAME="${{ steps.detect_package.outputs.package_name }}"
-          README_PATH="$PACKAGE_NAME/README.md"
+          PACKAGE="${{ steps.detect.outputs.package }}"
+          README="$PACKAGE/README.md"
 
-          if [ ! -f "$README_PATH" ]; then
-            echo "README 없음 → Unknown"
-            echo "leetcode_level=Unknown" >> $GITHUB_OUTPUT
+          if [ ! -f "$README" ]; then
+            echo "level=Unknown" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          LEVEL=$(grep -oP '(?<=<h3>).*?(?=</h3>)' "$README_PATH" | head -n 1)
+          LEVEL=$(grep -oP '(?<=<h3>).*?(?=</h3>)' "$README" | head -n 1)
+          [ -z "$LEVEL" ] && LEVEL="Unknown"
 
-          if [ -z "$LEVEL" ]; then
-            LEVEL="Unknown"
-          fi
-
-          echo "난이도 감지: $LEVEL"
-          echo "leetcode_level=$LEVEL" >> $GITHUB_OUTPUT
-
-  move:
-    needs: detect
-    if: ${{ needs.detect.outputs.should_run == 'true' && needs.detect.outputs.package_name != '' }}
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 2
+          echo "level=$LEVEL" >> $GITHUB_OUTPUT
 
       # 4️⃣ LeetCode 폴더로 이동 / 병합
-      - name: Move Directory
+      - name: Move to LeetCode
         run: |
-          set -x
-
-          PACKAGE_NAME="${{ needs.detect.outputs.package_name }}"
-          LEVEL="${{ needs.detect.outputs.level }}"
+          PACKAGE="${{ steps.detect.outputs.package }}"
+          LEVEL="${{ steps.level.outputs.level }}"
           ROOT="LeetCode"
 
-          echo "이동 대상: $PACKAGE_NAME"
+          echo "이동 대상: $PACKAGE"
           echo "난이도: $LEVEL"
 
-          FOUND_PATH=""
+          FOUND=""
 
           if [ -d "$ROOT" ]; then
-            for dir in "$ROOT"/*; do
-              if [ -d "$dir/$PACKAGE_NAME" ]; then
-                FOUND_PATH="$dir/$PACKAGE_NAME"
+            for d in "$ROOT"/*; do
+              if [ -d "$d/$PACKAGE" ]; then
+                FOUND="$d/$PACKAGE"
                 break
               fi
             done
           fi
 
-          if [ -n "$FOUND_PATH" ]; then
-            echo "기존 문제 발견 → 병합 이동"
-            mv "$PACKAGE_NAME"/* "$FOUND_PATH"/
-            rmdir "$PACKAGE_NAME" || true
+          if [ -n "$FOUND" ]; then
+            echo "기존 문제 발견 → 병합"
+            mv "$PACKAGE"/* "$FOUND"/
+            rm -rf "$PACKAGE"
           else
-            DEST="$ROOT/$LEVEL/$PACKAGE_NAME"
-            echo "새 문제 이동 → $DEST"
+            echo "새 문제 이동"
             mkdir -p "$ROOT/$LEVEL"
-            mv "$PACKAGE_NAME" "$ROOT/$LEVEL/"
+            mv "$PACKAGE" "$ROOT/$LEVEL/"
           fi
 
       # 5️⃣ 커밋 & 푸시
       - name: Commit and Push
         run: |
-          git config --global user.name "YOUR_GITHUB_NAME"
-          git config --global user.email "YOUR_EMAIL@example.com"
+          git config user.name "YOUR_GITHUB_NAME"
+          git config user.email "YOUR_EMAIL@example.com"
 
           git add .
-          git commit -m "${{ needs.detect.outputs.commit_msg }}" || echo "변경 사항 없음"
+          git commit -m "${{ steps.check.outputs.commit_msg }}" || echo "변경 없음"
           git push
