@@ -22,7 +22,7 @@ jobs:
         with:
           fetch-depth: 2
 
-      # 1️⃣ LeetHub 커밋인지 확인
+      # 1️⃣ LeetHub 커밋 감지
       - name: Check if LeetHub Commit
         id: check_leethub
         run: |
@@ -35,37 +35,42 @@ jobs:
             echo "commit_msg<<EOF" >> $GITHUB_OUTPUT
             echo "$COMMIT_MSG" >> $GITHUB_OUTPUT
             echo "EOF" >> $GITHUB_OUTPUT
-            echo "LeetHub 커밋 감지 ✅"
+            echo "LeetHub 커밋 감지됨 ✅"
           else
             echo "should_run=false" >> $GITHUB_OUTPUT
             echo "일반 커밋 → 작업 스킵 ❌"
           fi
 
-      # 2️⃣ 새로 생긴 문제 폴더 감지
-      - name: Detect New Solve Package
+      # 2️⃣ LeetHub 문제 폴더 감지 (신규 + 재제출 대응)
+      - name: Detect LeetHub Problem Folder
         id: detect_package
         if: steps.check_leethub.outputs.should_run == 'true'
         run: |
-          EXCLUDE_DIRS=("LeetCode" "백준" "프로그래머스" ".github")
-          NEW_DIRS=$(git diff --name-only HEAD~1 HEAD | awk -F/ 'NF==2 {print $1}' | sort -u)
+          echo "변경된 파일 목록:"
+          git diff --name-only HEAD~1 HEAD
 
-          for DIR in $NEW_DIRS; do
-            SKIP=false
-            for EX in "${EXCLUDE_DIRS[@]}"; do
-              if [[ "$DIR" == "$EX" ]]; then
-                SKIP=true
-                break
-              fi
-            done
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
 
-            if [[ "$SKIP" == false ]]; then
-              echo "새 문제 패키지 발견: $DIR"
+          for DIR in $(echo "$CHANGED_FILES" | awk -F/ '{print $1}' | sort -u); do
+            case "$DIR" in
+              LeetCode|백준|프로그래머스|.github)
+                continue
+                ;;
+            esac
+
+            # 이미 LeetCode 안에 있으면 skip
+            if [[ "$DIR" == LeetCode* ]]; then
+              continue
+            fi
+
+            if [ -f "$DIR/README.md" ]; then
+              echo "문제 폴더 감지: $DIR"
               echo "package_name=$DIR" >> $GITHUB_OUTPUT
               exit 0
             fi
           done
 
-          echo "새 문제 패키지 없음"
+          echo "문제 폴더 감지 실패"
 
       # 3️⃣ README에서 난이도 추출
       - name: Extract Level from README
@@ -102,7 +107,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 2
 
-      # 4️⃣ LeetCode 폴더로 이동
+      # 4️⃣ LeetCode 폴더로 이동 / 병합
       - name: Move Directory
         run: |
           set -x
@@ -114,20 +119,20 @@ jobs:
           echo "이동 대상: $PACKAGE_NAME"
           echo "난이도: $LEVEL"
 
-          FOUND=""
+          FOUND_PATH=""
 
           if [ -d "$ROOT" ]; then
             for dir in "$ROOT"/*; do
               if [ -d "$dir/$PACKAGE_NAME" ]; then
-                FOUND="$dir/$PACKAGE_NAME"
+                FOUND_PATH="$dir/$PACKAGE_NAME"
                 break
               fi
             done
           fi
 
-          if [ -n "$FOUND" ]; then
-            echo "기존 문제 발견 → 병합"
-            mv "$PACKAGE_NAME"/* "$FOUND"/
+          if [ -n "$FOUND_PATH" ]; then
+            echo "기존 문제 발견 → 병합 이동"
+            mv "$PACKAGE_NAME"/* "$FOUND_PATH"/
             rmdir "$PACKAGE_NAME" || true
           else
             DEST="$ROOT/$LEVEL/$PACKAGE_NAME"
@@ -143,5 +148,5 @@ jobs:
           git config --global user.email "YOUR_EMAIL@example.com"
 
           git add .
-          git commit -m "${{ needs.detect.outputs.commit_msg }}" || echo "변경사항 없음"
+          git commit -m "${{ needs.detect.outputs.commit_msg }}" || echo "변경 사항 없음"
           git push
