@@ -19,17 +19,27 @@ jobs:
 
       # 1️⃣ LeetHub 커밋인지 확인
       - name: Check LeetHub Commit
+        id: check
         run: |
           COMMIT_MSG="$(git log -1 --pretty=%B)"
           echo "$COMMIT_MSG"
 
           if [[ "$COMMIT_MSG" != *"LeetHub"* ]]; then
-            echo "LeetHub 커밋 아님 → 종료"
-            exit 0
+            echo "not_leethub=true" >> $GITHUB_OUTPUT
+          else
+            echo "not_leethub=false" >> $GITHUB_OUTPUT
           fi
 
-      # 2️⃣ 루트에 있는 모든 000x-* 폴더 이동 (재제출 포함)
+      # LeetHub 커밋 아니면 이후 step 전부 스킵
+      - name: Skip if not LeetHub
+        if: steps.check.outputs.not_leethub == 'true'
+        run: |
+          echo "LeetHub 커밋 아님 → 종료"
+          exit 0
+
+      # 2️⃣ 루트에 있는 모든 000x-* 폴더 이동
       - name: Move All LeetHub Folders
+        id: move_folders
         run: |
           shopt -s nullglob
 
@@ -43,7 +53,6 @@ jobs:
 
             echo "처리 대상: $DIR"
 
-            # 난이도 추출
             LEVEL="Unknown"
             if [ -f "$DIR/README.md" ]; then
               TMP=$(grep -oP '(?<=<h3>).*?(?=</h3>)' "$DIR/README.md" | head -n 1 || true)
@@ -54,22 +63,17 @@ jobs:
             [ -z "$LEVEL" ] && LEVEL="Unknown"
 
             FOUND=""
-
-            if [ -d "$ROOT" ]; then
-              for d in "$ROOT"/*; do
-                if [ -d "$d/$DIR" ]; then
-                  FOUND="$d/$DIR"
-                  break
-                fi
-              done
-            fi
+            for d in "$ROOT"/*; do
+              if [ -d "$d/$DIR" ]; then
+                FOUND="$d/$DIR"
+                break
+              fi
+            done
 
             if [ -n "$FOUND" ]; then
-              echo "→ 기존 폴더 병합: $FOUND"
               mv "$DIR"/* "$FOUND"/
               rm -rf "$DIR"
             else
-              echo "→ 새 위치로 이동: $ROOT/$LEVEL/$DIR"
               mkdir -p "$ROOT/$LEVEL"
               mv "$DIR" "$ROOT/$LEVEL/"
             fi
@@ -77,22 +81,19 @@ jobs:
             MOVED=true
           done
 
+          echo "moved=$MOVED" >> $GITHUB_OUTPUT
+
           if [ "$MOVED" = false ]; then
             echo "이동할 LeetHub 폴더 없음"
           fi
 
-      # 3️⃣ 커밋 & 푸시
+      # 3️⃣ 실제로 이동이 있었을 때만 커밋
       - name: Commit and Push
+        if: steps.move_folders.outputs.moved == 'true'
         run: |
           git config --global user.name "BB545"
           git config --global user.email "black1016@hanmail.net"
 
           git add .
-
-          if git diff --cached --quiet; then
-            echo "변경 사항 없음"
-            exit 0
-          fi
-
           git commit -m "chore: organize LeetHub folders"
           git push
